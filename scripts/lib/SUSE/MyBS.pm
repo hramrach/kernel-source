@@ -686,13 +686,16 @@ sub create_project {
 }
 
 sub create_package {
-	my ($self, $prj, $package) = @_;
+	my ($self, $prj, $package, $scmsync) = @_;
 
 	my $meta;
 	my $writer = XML::Writer->new(OUTPUT => \$meta);
 	$writer->startTag("package", project => $prj->{name}, name => $package);
 	$writer->dataElement("title", $package);
 	$writer->dataElement("description", "");
+	if (defined $scmsync) {
+	    $writer->dataElement("scmsync", $scmsync);
+	}
 	$writer->endTag("package");
 	$writer->end();
 
@@ -740,6 +743,7 @@ sub upload_package {
 	my $multibuild = $options->{multibuild};
 	my $progresscb = $options->{progresscb} || sub { };
 	my $no_init = $options->{no_init};
+	my $scmsync = $options->{scmsync};
 	my $remove_packages = $options->{remove_packages} || [];
 	my %remove_packages = map { $_ => 1 } @$remove_packages;
 	my $specfiles = $options->{specfiles} || [];
@@ -755,44 +759,46 @@ sub upload_package {
 	if (!$self->project_exists($project)) {
 		die "Project $project does not exist\n";
 	}
-	if (!$no_init) {
-		$self->create_package($prj, $package);
+	if (!$no_init || $scmsync) {
+		$self->create_package($prj, $package, $scmsync);
 		&$progresscb('CREATE', "$project/$package");
 	}
-	opendir(my $dh, $dir) or die "$dir: $!\n";
-	my $remote = $self->readdir("/source/$project/$package");
-	my $new_filelist = "";
-	my $filelist_writer = XML::Writer->new(OUTPUT => \$new_filelist);
-	$filelist_writer->startTag("directory");
-	my $changed = 0;
-	while ((my $name = CORE::readdir($dh))) {
-		my $local_path = "$dir/$name";
-		my $remote_path = "/source/$project/$package/$name?rev=repository";
-		next if $name =~ /^\./;
-		next if ! -f $local_path;
-		open(my $fh, '<', "$dir/$name") or die "$dir/$name: $!\n";
-		my $md5 = Digest::MD5->new->addfile($fh)->hexdigest;
-		$filelist_writer->emptyTag("entry", name => $name, md5 => $md5);
-		if (!$remote->{$name} || $md5 ne $remote->{$name}->{md5}) {
-			$self->put_file($local_path, $remote_path);
-			&$progresscb('PUT', $name);
+	if (!$scmsync) {
+		opendir(my $dh, $dir) or die "$dir: $!\n";
+		my $remote = $self->readdir("/source/$project/$package");
+		my $new_filelist = "";
+		my $filelist_writer = XML::Writer->new(OUTPUT => \$new_filelist);
+		$filelist_writer->startTag("directory");
+		my $changed = 0;
+		while ((my $name = CORE::readdir($dh))) {
+			my $local_path = "$dir/$name";
+			my $remote_path = "/source/$project/$package/$name?rev=repository";
+			next if $name =~ /^\./;
+			next if ! -f $local_path;
+			open(my $fh, '<', "$dir/$name") or die "$dir/$name: $!\n";
+			my $md5 = Digest::MD5->new->addfile($fh)->hexdigest;
+			$filelist_writer->emptyTag("entry", name => $name, md5 => $md5);
+			if (!$remote->{$name} || $md5 ne $remote->{$name}->{md5}) {
+				$self->put_file($local_path, $remote_path);
+				&$progresscb('PUT', $name);
+				$changed = 1;
+			}
+			if ($remote->{$name}) {
+				delete $remote->{$name};
+			}
+		}
+		closedir($dh);
+		for my $name (keys(%$remote)) {
+			$self->delete("/source/$project/$package/$name");
+			&$progresscb('DELETE', $name);
 			$changed = 1;
 		}
-		if ($remote->{$name}) {
-			delete $remote->{$name};
+		$filelist_writer->endTag("directory");
+		$filelist_writer->end();
+		if ($changed) {
+			my $xml = $self->post("/source/$project/$package?comment=$commit&cmd=commitfilelist", $new_filelist);
+			$revision = $self->get_directory_revision($xml);
 		}
-	}
-	closedir($dh);
-	for my $name (keys(%$remote)) {
-		$self->delete("/source/$project/$package/$name");
-		&$progresscb('DELETE', $name);
-		$changed = 1;
-	}
-	$filelist_writer->endTag("directory");
-	$filelist_writer->end();
-	if ($changed) {
-		my $xml = $self->post("/source/$project/$package?comment=$commit&cmd=commitfilelist", $new_filelist);
-		$revision = $self->get_directory_revision($xml);
 	}
 	if ($no_init) {
 		return $revision;

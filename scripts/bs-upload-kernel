@@ -22,6 +22,7 @@ use List::Flatten;
 my $api;
 my $verbose = 1;
 my $no_init;
+my $scmsync;
 my $ignore_kabi;
 my $debuginfo;
 my $enable_checks;
@@ -34,6 +35,7 @@ GetOptions(
 	"A|apiurl=s" => \$api,
 	"i|ignore-kabi" => \$ignore_kabi,
 	"no-init" => \$no_init,
+	"scmsync=s" => \$scmsync,
 	"c|enable-checks" => \$enable_checks,
 	"d|debuginfo" => \$debuginfo,
 	"r|rebuild" => \$rebuild,
@@ -159,6 +161,7 @@ if ($verbose) {
 }
 my $rev = $bs->upload_package($dir, $prj, $package, $commit, {
 		no_init => $no_init,
+		scmsync => $scmsync,
 		progresscb => $progress_cb,
 		remove_packages => [qw(kernel-dummy)],
 		specfiles => \@specfiles,
