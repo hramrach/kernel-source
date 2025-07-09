@@ -21,8 +21,6 @@ use Fcntl;
 use POSIX qw(strftime);
 use Errno;
 
-use SUSE::MyBS::Buildresults;
-
 my $cookiefile = "~/.local/state/MyBS/cookie";
 my $lockfile = $cookiefile . ".lock";
 my $locktime = 300;
@@ -394,16 +392,6 @@ sub put {
 	$self->api('PUT', @_);
 }
 
-sub put_file {
-	my ($self, $file, $path) = @_;
-
-	open(my $fh, '<', $file) or die "$file: $!\n";
-	local $/ = undef;
-	my $data = <$fh>;
-	close($fh);
-	$self->put($path, $data);
-}
-
 sub delete {
 	my $self = shift;
 
@@ -763,43 +751,6 @@ sub upload_package {
 		$self->create_package($prj, $package, $scmsync);
 		&$progresscb('CREATE', "$project/$package");
 	}
-	if (!$scmsync) {
-		opendir(my $dh, $dir) or die "$dir: $!\n";
-		my $remote = $self->readdir("/source/$project/$package");
-		my $new_filelist = "";
-		my $filelist_writer = XML::Writer->new(OUTPUT => \$new_filelist);
-		$filelist_writer->startTag("directory");
-		my $changed = 0;
-		while ((my $name = CORE::readdir($dh))) {
-			my $local_path = "$dir/$name";
-			my $remote_path = "/source/$project/$package/$name?rev=repository";
-			next if $name =~ /^\./;
-			next if ! -f $local_path;
-			open(my $fh, '<', "$dir/$name") or die "$dir/$name: $!\n";
-			my $md5 = Digest::MD5->new->addfile($fh)->hexdigest;
-			$filelist_writer->emptyTag("entry", name => $name, md5 => $md5);
-			if (!$remote->{$name} || $md5 ne $remote->{$name}->{md5}) {
-				$self->put_file($local_path, $remote_path);
-				&$progresscb('PUT', $name);
-				$changed = 1;
-			}
-			if ($remote->{$name}) {
-				delete $remote->{$name};
-			}
-		}
-		closedir($dh);
-		for my $name (keys(%$remote)) {
-			$self->delete("/source/$project/$package/$name");
-			&$progresscb('DELETE', $name);
-			$changed = 1;
-		}
-		$filelist_writer->endTag("directory");
-		$filelist_writer->end();
-		if ($changed) {
-			my $xml = $self->post("/source/$project/$package?comment=$commit&cmd=commitfilelist", $new_filelist);
-			$revision = $self->get_directory_revision($xml);
-		}
-	}
 	if ($no_init) {
 		return $revision;
 	}
@@ -916,27 +867,6 @@ sub get_kernel_commit {
 		die "Malformet timestamp file in $project/$package\n";
 	}
 	return $1;
-}
-
-sub get_results {
-	my ($self, $project, $repository, $arch) = @_;
-
-	my @params;
-	push(@params, "repository=$repository") if $repository;
-	push(@params, "arch=$arch") if $arch;
-	my $xml = $self->get("/build/$project/_result?" . join("&", @params));
-	return SUSE::MyBS::Buildresults->new($xml);
-}
-
-sub load_results {
-	my ($self, $file) = @_;
-	my $xml = "";
-
-	local $/ = undef;
-	if (open(my $fh, '<', $file)) {
-		$xml = <$fh>;
-	};
-	return SUSE::MyBS::Buildresults->new($xml);
 }
 
 sub list_projects {

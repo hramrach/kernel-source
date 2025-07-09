@@ -338,7 +338,7 @@ do_upload()
 	esac
 	check_dir_commit "$dir"
 
-	cmd=("$(dirname "$0")/bs-upload-kernel" "${args[@]}" "$dir" "$home_project")
+	cmd=("$(dirname "$0")/bs-upload-kernel-git" "${args[@]}" "$dir" "$home_project")
 	if test "$(basename "$dir")" != "kernel-source$VARIANT"; then
 		cmd=("${cmd[@]}" "kernel-source$VARIANT")
 	fi

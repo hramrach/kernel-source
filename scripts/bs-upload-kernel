@@ -47,6 +47,8 @@ GetOptions(
 	"h|help" => sub { print $USAGE; exit },
 ) or die($USAGE);
 
+die "scmsync URL needed" unless $scmsync;
+
 if (scalar(@ARGV) < 2 || @ARGV > 3 || !-d $ARGV[0]) {
 	die($USAGE);
 }
