@@ -1,0 +1,56 @@
+#!/usr/bin/python3
+from obsapi.utils import get_kernel_project_package, get_source_timestamp
+from obsapi.uploader import Uploader
+from obsapi.api import APIError
+import subprocess
+import tempfile
+import argparse
+import sys
+
+argv = sys.argv
+
+params = sys.argv[1:]
+progname = sys.argv[0]
+suffix = progname[-4:]
+if suffix != '-git':
+    raise RuntimeError('Unexpected program name: %s' %(progname))
+bs_upload_kernel = progname[:-4]
+
+parser = argparse.ArgumentParser()
+parser.add_argument('-A', '--apiurl', default='https://api.opensuse.org')
+parser.add_argument('-i', '--ignore-kabi', action='store_true')
+parser.add_argument('--no-init', action='store_true')
+parser.add_argument('-c', '--enable-checks', action='store_true')
+parser.add_argument('-d', '--debuginfo', action='store_true')
+parser.add_argument('-r', '--rebuild', action='store_true')
+parser.add_argument('-s', '--submit', action='store_true')
+parser.add_argument('-l', '--log', action='store_true')
+parser.add_argument('--reset-branch', action='store_true')
+parser.add_argument('--maintainer', dest='maintainers', action='append')
+parser.add_argument('--flavor', dest='limit_packages', action='append')
+parser.add_argument('-q', '--quiet', dest='verbose', action='store_false', default=True)
+parser.add_argument('-v', '--verbose', dest='verbose', action='store_true', default=True)
+parser.add_argument('data')
+parser.add_argument('project')
+parser.add_argument('package', nargs='?')
+args = parser.parse_args(params)
+params = [p for p in params if p not in ['--reset-branch', '--submit', '-s', '-l', '--log']]
+
+logfile = None
+if args.log:
+    logfile = tempfile.NamedTemporaryFile(prefix=progname + '.', delete=False)
+    sys.stderr.write('Logging API calls to %s\n' % (logfile.name,))
+
+project, package = get_kernel_project_package(args.data)
+
+try:
+    ul = Uploader(api=args.apiurl, upstream_project=project, user_project=args.project, package=package, reset_branch=args.reset_branch, logfile=logfile)
+    ul.upload(args.data, get_source_timestamp(args.data))
+    if args.submit:
+        ul.submit()
+except APIError as e:
+    sys.stderr.write('ERROR: %s\n' % (e,))
+    exit(1)
+
+exit(subprocess.call([bs_upload_kernel, '--scmsync', ul.sync_url()] + params))
+
